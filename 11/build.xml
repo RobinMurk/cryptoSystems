@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project default="applet" basedir=".">
+  <taskdef name="javacard" classname="pro.javacard.ant.JavaCard" classpath="ant-javacard.jar"/>
+  <target name="applet">
+    <javacard jckit="oracle_javacard_sdks/jc222_kit/">
+      <cap output="applet.cap" sources="/home/user/eclipse-workspace/appcrypto/src/">
+        <applet class="appcrypto.TestApplet" aid="0102030405060708"/>
+      </cap>
+    </javacard>
+  </target>
+</project>
