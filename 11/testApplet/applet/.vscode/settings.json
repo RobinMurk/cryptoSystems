@@ -1,0 +1,14 @@
+{
+    "java.project.sourcePaths": [
+        "src"
+    ],
+    "java.project.outputPath": "bin",
+    "java.project.referencedLibraries": {
+        "include": [
+            "/home/robin/testApplet/applet/lib/api.jar"
+        ],
+        "exclude": [
+            "lib/jc222_kit/lib/api.jar"
+        ]
+    }
+}

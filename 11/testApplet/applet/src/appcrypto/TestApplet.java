@@ -1,17 +1,10 @@
 package appcrypto;
-
-import java.applet.Applet;
-import java.security.KeyPair;
-import java.security.interfaces.RSAPublicKey;
-
-import javax.crypto.Cipher;
-
 import javacard.framework.*;
 import javacard.security.*;
 import javacardx.crypto.*;
 
-// took x.y hours (please specify here how much time your solution required)
-
+// took 5 hours (please specify here how much time your solution required)
+//main issues were with jdk and setting the project
 
 public class TestApplet extends Applet {
 	
@@ -29,12 +22,10 @@ public class TestApplet extends Applet {
 	
 	public void process(APDU apdu) {
 		byte[] buf = apdu.getBuffer();
-		
+		short len;
+
 		switch (buf[ISO7816.OFFSET_INS]) {
 		case (0x02): //generate RSA keys
-			if (buf[ISO7816.OFFSET_LC] != (byte)0) {
-				ISOException.throwIt(ISO7816.SW_DATA_INVALID);
-			}
 			if(keypair == null){
 				keypair = new KeyPair(KeyPair.ALG_RSA, KeyBuilder.LENGTH_RSA_2048);
 				keypair.genKeyPair();
@@ -44,33 +35,49 @@ public class TestApplet extends Applet {
 			}
 			return;
 		case (0x04): //request the exponent of public key
-			if (buf[ISO7816.OFFSET_LC] != (byte)0) {
-				ISOException.throwIt(ISO7816.SW_DATA_INVALID);
-			}
 			if (pub == null){
-				ISOException.throwIt("No keypair exists");
+				ISOException.throwIt(ISO7816.SW_COMMAND_NOT_ALLOWED);
 			}
-			short len = pub.getExponent(buf, (short)0);
+
+			len = pub.getExponent(buf, (short)0);
 			apdu.setOutgoingAndSend((short)0, len);
 			return;
 		case (0x06): //request the modulus of public key
-			short len = pub.getModulus(buf, (short)0);
+			len = pub.getModulus(buf, (short)0);
 			apdu.setOutgoingAndSend((short)0, len);
 			return;
 		case (0x08): //decrypt data
-			if (buf[ISO7816.OFFSET_LC] = (byte)0) {
+			if (buf[ISO7816.OFFSET_LC] == (byte)0) {
 				ISOException.throwIt(ISO7816.SW_DATA_INVALID);
 			}
-			buf[4] = buf[3];
-			buf[3] = buf[2];
-			short len = rsa.doFinal(
+
+			len = (short)(buf[ISO7816.OFFSET_LC] & (short)0xff);
+			byte p1 = buf[ISO7816.OFFSET_P1];
+			byte p2 = buf[ISO7816.OFFSET_P2];
+
+			byte[]data = JCSystem.makeTransientByteArray(
+				(short)256, 
+				JCSystem.CLEAR_ON_DESELECT
+				);
+			data[0] = p1;
+			data[1] = p2;
+
+			apdu.setIncomingAndReceive();
+
+			Util.arrayCopyNonAtomic(
+				buf, 
+				ISO7816.OFFSET_CDATA, 
+				data, 
+				(short)2, 
+				len
+				);
+			len = rsa.doFinal(
+				data,
+				(short)0,
+				(short)256,
 				buf,
-				(short) 3,
-				(short) 256,
-				buf,
-				(short) 0
-			)
-			apdu.setOutgoingAndSend((short) 0, len)
+				(short)0);
+			apdu.setOutgoingAndSend((short)0, len);
 			return;
 		}
 		ISOException.throwIt(ISO7816.SW_INS_NOT_SUPPORTED);		
