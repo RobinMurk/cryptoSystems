@@ -34,9 +34,11 @@ def client_hello():
 
     print("--> ClientHello()")
 
-    TLS_supported = b'\x03\x01'
+    TLS_supported = b'\x03\x02'   #TODO NB! ALL of the testcases can accept b'\x03\x02'. 
+                                  #facebook.com did not accept b'\x03\x03' but others on test case did. 
+                                  # if the metod would be changed to try to
+                                  # test with another TLS level, then this would work.
     client_randomness = ib(int(time.time()), 4) + os.urandom(28)
-    print("time: ", ib(int(time.time()), 4).hex())
     session_id_len = b'\x00'
 
     csuite_len = b'\x00\x06'
