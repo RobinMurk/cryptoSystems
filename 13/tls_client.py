@@ -114,9 +114,22 @@ def client_hello():
 
 # returns TLS record that contains ClientKeyExchange message containing encrypted pre-master secret
 def client_key_exchange():
-    global server_cert, premaster, handshake_messages
+    global server_cert, premaster, handshake_messages, TLS_SUPPORTED
 
     print("--> ClientKeyExchange()")
+
+    premaster = TLS_SUPPORTED + os.urandom(46)
+    (N,e) = get_pubkey_certificate(server_cert)
+    padded_premaster = pkcsv15pad_encrypt(premaster,N)
+    encrypted_premaster = rsa_encrypt(server_cert,padded_premaster)
+
+    #add client_key_exchange header
+    handshake_header = b'\x10' + ib(len(encrypted_premaster), 3)
+    full_exchange = handshake_header + encrypted_premaster
+
+    handshake_messages += full_exchange
+    #add TLS record header
+    record = b'\x16' + TLS_SUPPORTED + ib(len(full_exchange),2) + full_exchange
 
     return record
 
@@ -124,6 +137,8 @@ def client_key_exchange():
 def change_cipher_spec():
     print("--> ChangeCipherSpec()")
 
+    cipher_spec_header = b'\x01'
+    record = b'\x14' + TLS_SUPPORTED + ib(len(cipher_spec_header),2) + cipher_spec_header
     return record
 
 # returns TLS record that contains encrypted Finished handshake message
@@ -132,13 +147,23 @@ def finished():
 
     print("--> Finished()")
     client_verify = PRF(master_secret, b"client finished" + sha256(handshake_messages).digest(), 12)
+    finished = b'\x14' + ib(len(client_verify), 3) + client_verify
 
+    # NOT SURE IF ENCRYPTED GOES TO HANDSHAKE RECORDS OR PLAIN
+    handshake_messages += finished
+    finished = encrypt(finished,b'\x16',TLS_SUPPORTED)
+    #add TLS record header
+    record = b'\x16' + TLS_SUPPORTED + ib(len(finished), 2) + finished
     return record
 
 # returns TLS record that contains encrypted Application data
 def application_data(data):
     print("--> Application_data()")
     print(data.decode().strip())
+    DATA = encrypt(data,b'\x17',TLS_SUPPORTED)
+    
+    #add TLS record header
+    record = b'\x17' + TLS_SUPPORTED + ib(len(DATA), 2) + DATA
 
     return record
 
@@ -159,10 +184,52 @@ def parsehandshake(r):
 
     if htype == b"\x02":
         print("	<--- ServerHello()")
+        server_random = body[2: 34]
+        gmt = body[2: 6]
+        gmt = datetime.datetime.fromtimestamp(bi(gmt))
+        sessid_len = bi(body[34: 35])
+        sessid_len_last_pos = 35 + sessid_len
+        sessid = body[35: 35 + sessid_len_last_pos]
+        cipher = body[sessid_len_last_pos: sessid_len_last_pos + 2]
+        compression = body[sessid_len_last_pos + 2: sessid_len_last_pos + 3]
+
+        print("	[+] server randomness:", server_random.hex().upper())
+        print("	[+] server timestamp:", gmt)
+        print("	[+] TLS session ID:", sessid.hex().upper())
+
+        if cipher==b"\x00\x2f":
+            print("	[+] Cipher suite: TLS_RSA_WITH_AES_128_CBC_SHA")
+        elif cipher==b"\x00\x35":
+            print("	[+] Cipher suite: TLS_RSA_WITH_AES_256_CBC_SHA")
+        elif cipher==b"\x00\x05":
+            print("	[+] Cipher suite: TLS_RSA_WITH_RC4_128_SHA")
+        else:
+            print("[-] Unsupported cipher suite selected:", cipher.hex())
+            sys.exit(1)
+
+        if compression!=b"\x00":
+            print("[-] Wrong compression:", compression.hex())
+            sys.exit(1)
+
     elif htype == b"\x0b":
         print("	<--- Certificate()")
+        
+        certlen = bi(body[3: 6])
+        print("	[+] Server certificate length:", certlen)
+        cert = body[6: 6 + certlen]
+        server_cert = cert
+        cert = codecs.encode(cert,"base64")
+        if args.certificate:
+            with open(args.certificate, 'wb') as file:
+                file.write(b'-----BEGIN CERTIFICATE-----\n')
+                file.write(cert)
+                file.write(b'-----END CERTIFICATE-----\n')
+            print("	[+] Server certificate saved in:", args.certificate)
+
     elif htype == b"\x0e":
         print("	<--- ServerHelloDone()")
+        server_hello_done_received = True
+
     elif htype == b"\x14":
         print("	<--- Finished()")
         # hashmac of all Handshake messages except the current Finished message (obviously)
@@ -317,7 +384,7 @@ server_cert = b""	# will hold DER encoded server certificate
 premaster = b""		# will hold 48 byte pre-master secret
 master_secret = b""	# will hold master secret
 handshake_messages = b"" # will hold concatenation of handshake messages
-TLS_SUPPORTED = b'\x03\x02'
+TLS_SUPPORTED = b'\x03\x03'
 
 # client/server keys and sequence numbers
 client_mac_key = b""
