@@ -18,13 +18,12 @@ def get_pubkey_certificate(cert):
     # reads the certificate and returns (n, e)
 
      # gets subjectPublicKey from certificate
-    bit_String = decoder.decode(cert)[0][0][6][1][1].asOctets()
-    pubkey, _ = decoder.decode(bit_String.asOctets())
+    pubkey = decoder.decode(cert)[0][0][6][1].asOctets()
 
     return int(pubkey[0]), int(pubkey[1])
 
 
-def pkcsv15pad_encrypt(plaintext, n):
+def pkcsv15pad_encrypt(plaintext, n) -> bytes:
     # pad plaintext for encryption according to PKCS#1 v1.5
 
     # calculate number of bytes required to represent the modulus N
@@ -49,9 +48,14 @@ def rsa_encrypt(cert, m):
     # encrypts message m using public key from certificate cert
     #get public key (N, e)
     (N, e) = get_pubkey_certificate(cert)
-
+    print("modulus: ", N)
+    print("exponent: ", e)
+    print("message in encrypt", m.hex())
+    print("len of message: ", len(m))
     ready_Plaintext = pkcsv15pad_encrypt(m,N)
-
+    if not ready_Plaintext:
+        print("no ready_Plaintext")
+        
     message = bi(ready_Plaintext)
     c = pow(message, e, N)
     return ib(c)
@@ -119,9 +123,7 @@ def client_key_exchange():
     print("--> ClientKeyExchange()")
 
     premaster = TLS_SUPPORTED + os.urandom(46)
-    (N,e) = get_pubkey_certificate(server_cert)
-    padded_premaster = pkcsv15pad_encrypt(premaster,N)
-    encrypted_premaster = rsa_encrypt(server_cert,padded_premaster)
+    encrypted_premaster = rsa_encrypt(server_cert, premaster)
 
     #add client_key_exchange header
     handshake_header = b'\x10' + ib(len(encrypted_premaster), 3)
@@ -219,12 +221,11 @@ def parsehandshake(r):
         cert = body[6: 6 + certlen]
         server_cert = cert
         cert = codecs.encode(cert,"base64")
-        if args.certificate:
-            with open(args.certificate, 'wb') as file:
-                file.write(b'-----BEGIN CERTIFICATE-----\n')
-                file.write(cert)
-                file.write(b'-----END CERTIFICATE-----\n')
-            print("	[+] Server certificate saved in:", args.certificate)
+        with open("public_key.pem", 'wb') as file:
+            file.write(b'-----BEGIN CERTIFICATE-----\n')
+            file.write(cert)
+            file.write(b'-----END CERTIFICATE-----\n')
+        print("	[+] Server certificate saved in: public_key.pem")
 
     elif htype == b"\x0e":
         print("	<--- ServerHelloDone()")
