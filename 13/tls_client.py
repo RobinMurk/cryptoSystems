@@ -19,6 +19,9 @@ def get_pubkey_certificate(cert):
 
      # gets subjectPublicKey from certificate
     pubkey = decoder.decode(cert)[0][0][6][1].asOctets()
+    with open("testfile", 'wb') as f:
+        f.write(pubkey)
+
     pubkey = decoder.decode(pubkey)[0]
 
     return int(pubkey[0]), int(pubkey[1])
