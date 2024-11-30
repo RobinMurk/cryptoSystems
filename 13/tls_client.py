@@ -6,7 +6,7 @@ from Cryptodome.Cipher import ARC4
 from pyasn1.codec.der import decoder  # do not use any other imports/libraries
 from urllib.parse import urlparse
 
-# took x.y hours (please specify here how much time your solution required)
+# took 10 hours (please specify here how much time your solution required)
 
 # parse arguments
 parser = argparse.ArgumentParser(description='TLS v1.2 client')
@@ -19,6 +19,11 @@ def get_pubkey_certificate(cert):
 
      # gets subjectPublicKey from certificate
     pubkey = decoder.decode(cert)[0][0][6][1].asOctets()
+    #TODO temporary
+    with open("public.der", 'wb') as f:
+        f.write(pubkey)
+
+    pubkey = decoder.decode(pubkey)[0]
 
     return int(pubkey[0]), int(pubkey[1])
 
@@ -48,10 +53,6 @@ def rsa_encrypt(cert, m):
     # encrypts message m using public key from certificate cert
     #get public key (N, e)
     (N, e) = get_pubkey_certificate(cert)
-    print("modulus: ", N)
-    print("exponent: ", e)
-    print("message in encrypt", m.hex())
-    print("len of message: ", len(m))
     ready_Plaintext = pkcsv15pad_encrypt(m,N)
     if not ready_Plaintext:
         print("no ready_Plaintext")
@@ -117,6 +118,7 @@ def client_hello():
     return record
 
 # returns TLS record that contains ClientKeyExchange message containing encrypted pre-master secret
+
 def client_key_exchange():
     global server_cert, premaster, handshake_messages, TLS_SUPPORTED
 
@@ -124,16 +126,17 @@ def client_key_exchange():
 
     premaster = TLS_SUPPORTED + os.urandom(46)
     encrypted_premaster = rsa_encrypt(server_cert, premaster)
+    premaster_body = ib(len(encrypted_premaster), 2) + encrypted_premaster
+    header = b'\x10' + ib(len(premaster_body), 3)
 
-    #add client_key_exchange header
-    handshake_header = b'\x10' + ib(len(encrypted_premaster), 3)
-    full_exchange = handshake_header + encrypted_premaster
-
+    #add the header
+    full_exchange = header + premaster_body
     handshake_messages += full_exchange
-    #add TLS record header
-    record = b'\x16' + TLS_SUPPORTED + ib(len(full_exchange),2) + full_exchange
 
+    # add TLS record header
+    record = b'\x16\x03\x03' + ib(len(full_exchange), 2) + full_exchange
     return record
+
 
 # returns TLS record that contains ChangeCipherSpec message
 def change_cipher_spec():
@@ -150,10 +153,9 @@ def finished():
     print("--> Finished()")
     client_verify = PRF(master_secret, b"client finished" + sha256(handshake_messages).digest(), 12)
     finished = b'\x14' + ib(len(client_verify), 3) + client_verify
-
-    # NOT SURE IF ENCRYPTED GOES TO HANDSHAKE RECORDS OR PLAIN
     handshake_messages += finished
     finished = encrypt(finished,b'\x16',TLS_SUPPORTED)
+
     #add TLS record header
     record = b'\x16' + TLS_SUPPORTED + ib(len(finished), 2) + finished
     return record
@@ -220,12 +222,6 @@ def parsehandshake(r):
         print("	[+] Server certificate length:", certlen)
         cert = body[6: 6 + certlen]
         server_cert = cert
-        cert = codecs.encode(cert,"base64")
-        with open("public_key.pem", 'wb') as file:
-            file.write(b'-----BEGIN CERTIFICATE-----\n')
-            file.write(cert)
-            file.write(b'-----END CERTIFICATE-----\n')
-        print("	[+] Server certificate saved in: public_key.pem")
 
     elif htype == b"\x0e":
         print("	<--- ServerHelloDone()")
@@ -235,9 +231,11 @@ def parsehandshake(r):
         print("	<--- Finished()")
         # hashmac of all Handshake messages except the current Finished message (obviously)
         verify_data_calc = PRF(master_secret, b"server finished" + sha256(handshake_messages[:-4-hlength]).digest(), 12)
+        server_verify = body
         if server_verify!=verify_data_calc:
             print("[-] Server finished verification failed!")
             sys.exit(1)
+        server_finished_received = True
     else:
         print("[-] Unknown Handshake Type:", htype.hex())
         sys.exit(1)
@@ -264,6 +262,8 @@ def parserecord(r):
         server_change_cipher_spec_received = True
     elif ctype == b"\x15":
         print("<--- Alert()")
+        if server_change_cipher_spec_received:
+            c = decrypt(c,b'\x15',TLS_SUPPORTED)
         level, desc = c[0], c[1]
         if level == 1:
             print("	[-] warning:", desc)
@@ -350,7 +350,7 @@ def readrecord():
     for _ in range(5):
         buf = s.recv(1)
         if not buf:
-            print("[-] socket closed!")
+            print("[-] socket closed! (no TLS header found)")
             exit(1)
         record += buf
 
@@ -361,7 +361,7 @@ def readrecord():
     for _ in range(datalen):
         buf = s.recv(1)
         if not buf:
-            print("[-] socket closed!")
+            print("[-] socket closed! (no body found)")
             exit(1)
         record += buf
 
